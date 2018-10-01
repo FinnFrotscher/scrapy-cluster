@@ -1,5 +1,4 @@
 from __future__ import absolute_import
-# Example Wandering Spider
 import scrapy
 
 from scrapy.http import Request
@@ -9,35 +8,30 @@ from scrapy.conf import settings
 from crawling.items import RawResponseItem
 from crawling.spiders.redis_spider import RedisSpider
 
-import random
 
-
-class WanderingSpider(RedisSpider):
+class ImdeSpider(RedisSpider):
     '''
-    A spider that randomly stumbles through the internet, until it hits a
-    page with no links on it.
+    A spider that walks all links from the requested URL. This is
+    the entrypoint for generic crawling.
     '''
-    name = "wandering"
+    name = "imde"
 
     def __init__(self, *args, **kwargs):
-        super(WanderingSpider, self).__init__(*args, **kwargs)
+        super(LinkSpider, self).__init__(*args, **kwargs)
 
     def parse(self, response):
-        # debug output for receiving the url
         self._logger.debug("crawled url {}".format(response.request.url))
+        cur_depth = 0
+        if 'curdepth' in response.meta:
+            cur_depth = response.meta['curdepth']
 
-        # step counter for how many pages we have hit
-        step = 0
-        if 'step' in response.meta:
-            step = response.meta['step']
-
-        # Create Item to send to kafka
         # capture raw response
         item = RawResponseItem()
         # populated from response.meta
         item['appid'] = response.meta['appid']
         item['crawlid'] = response.meta['crawlid']
         item['attrs'] = response.meta['attrs']
+
         # populated from raw HTTP response
         item["url"] = response.request.url
         item["response_url"] = response.url
@@ -47,44 +41,38 @@ class WanderingSpider(RedisSpider):
         item["request_headers"] = response.request.headers
         item["body"] = response.body
         item["links"] = []
-        # we want to know how far our spider gets
-        if item['attrs'] is None:
-            item['attrs'] = {}
 
-        item['attrs']['step'] = step
-
-        self._logger.debug("Finished creating item")
-
-        # determine what link we want to crawl
-        link_extractor = LinkExtractor(
+        # determine whether to continue spidering
+        if cur_depth >= response.meta['maxdepth']:
+            self._logger.debug("Not spidering links in '{}' because" \
+                " cur_depth={} >= maxdepth={}".format(
+                                                      response.url,
+                                                      cur_depth,
+                                                      response.meta['maxdepth']))
+        else:
+            # we are spidering -- yield Request for each discovered link
+            link_extractor = LinkExtractor(
                             allow_domains=response.meta['allowed_domains'],
                             allow=response.meta['allow_regex'],
                             deny=response.meta['deny_regex'],
                             deny_extensions=response.meta['deny_extensions'])
 
-        links = link_extractor.extract_links(response)
+            for link in link_extractor.extract_links(response):
+                # link that was discovered
+                the_url = link.url
+                the_url = the_url.replace('\n', '')
+                item["links"].append({"url": the_url, "text": link.text, })
+                req = Request(the_url, callback=self.parse)
 
-        # there are links on the page
-        if len(links) > 0:
-            self._logger.debug("Attempting to find links")
-            link = random.choice(links)
-            req = Request(link.url, callback=self.parse)
+                req.meta['priority'] = response.meta['priority'] - 10
+                req.meta['curdepth'] = response.meta['curdepth'] + 1
 
-            # increment our step counter for this crawl job
-            req.meta['step'] = step + 1
-
-            # pass along our user agent as well
-            if 'useragent' in response.meta and \
+                if 'useragent' in response.meta and \
                         response.meta['useragent'] is not None:
                     req.headers['User-Agent'] = response.meta['useragent']
 
-            # debug output
-            self._logger.debug("Trying to yield link '{}'".format(req.url))
-
-            # yield the Request to the scheduler
-            yield req
-        else:
-            self._logger.info("Did not find any more links")
+                self._logger.debug("Trying to follow link '{}'".format(req.url))
+                yield req
 
         # raw response has been processed, yield to item pipeline
         yield item

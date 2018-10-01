@@ -16,6 +16,9 @@ services:
     restart: always
   crawler:
     image: istresearch/scrapy-cluster:crawler-1.2.1
+    build:
+      context: .
+      dockerfile: docker/crawler/Dockerfile
     depends_on:
       - kafka
       - redis
@@ -23,6 +26,9 @@ services:
     restart: always
   rest:
     image: istresearch/scrapy-cluster:rest-1.2.1
+    build:
+      context: .
+      dockerfile: docker/rest/Dockerfile
     depends_on:
       - kafka
       - redis

@@ -57,7 +57,7 @@ def main():
                              help="Do not include the raw html 'body' key in"
                              " the json dump of the topic")
     dump_parser.add_argument('-p', '--pretty', action='store_const',
-                             required=False, const=True, default=False,
+                             required=False, const=True, default=True,
                              help="Pretty print the json objects consumed")
     dump_parser.add_argument('-d', '--decode-base64', action='store_const',
                              required=False, const=True, default=False,
@@ -95,6 +95,7 @@ def main():
 
         try:
             logger.debug("Getting Kafka consumer")
+            logger.info("Getting Kafka consumer")
 
             offset = 'earliest' if args["from_beginning"] else 'latest'
 
